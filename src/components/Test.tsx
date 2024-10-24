@@ -30,51 +30,134 @@ const SpeechTiming: React.FC<Props> = ({ audioUrl, text }) => {
   const [metrics, setMetrics] = useState<ProcessingMetrics | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  const getPauseDuration = (word: string, nextWord: string | null): number => {
+    // Pause after punctuation marks
+    if (word.endsWith(".")) return 0.5; // Longer pause for end of sentences
+    if (word.endsWith(",")) return 0.25; // Medium pause for commas
+    if (word.endsWith(";") || word.endsWith(":")) return 0.35; // Medium-long pause for semicolons
+    if (word.endsWith("?") || word.endsWith("!")) return 0.5; // Longer pause for questions/exclamations
+
+    // Check for natural phrase boundaries
+    if (nextWord && isPhraseBoundary(word, nextWord)) return 0.2;
+
+    // Short pause between words
+    return 0.1;
+  };
+
+  const isPhraseBoundary = (word: string, nextWord: string): boolean => {
+    // Common conjunctions and prepositions that often indicate phrase boundaries
+    const boundaryWords = [
+      "and",
+      "but",
+      "or",
+      "nor",
+      "for",
+      "yet",
+      "so",
+      "after",
+      "before",
+      "while",
+    ];
+    return boundaryWords.includes(nextWord.toLowerCase());
+  };
+
+  const getWordTiming = (word: string): number => {
+    // Base timing on syllables instead of just characters
+    const syllables = countSyllables(word);
+    // Average syllable duration (typical speech is 4-6 syllables per second)
+    const baseDuration = syllables * 0.15;
+
+    // Adjust for word complexity
+    if (word.length > 8) return baseDuration * 1.2; // Longer words need more time
+    if (word.length <= 2) return baseDuration * 0.8; // Short words are quicker
+
+    return baseDuration;
+  };
+
+  const countSyllables = (word: string): number => {
+    word = word.toLowerCase();
+    if (word.length <= 3) return 1;
+
+    // Remove punctuation
+    word = word.replace(/[.,!?;:]/, "");
+
+    // Count vowel groups as syllables
+    const vowels = "aeiouy";
+    let count = 0;
+    let previousWasVowel = false;
+
+    for (let i = 0; i < word.length; i++) {
+      const isVowel = vowels.includes(word[i]);
+      if (isVowel && !previousWasVowel) count++;
+      previousWasVowel = isVowel;
+    }
+
+    // Handle silent e
+    if (word.endsWith("e")) count--;
+
+    // Handle special cases
+    if (
+      word.endsWith("le") &&
+      word.length > 2 &&
+      !vowels.includes(word[word.length - 3])
+    )
+      count++;
+
+    return count || 1;
+  };
+
   const processText = () => {
     if (!text) return;
 
     const startTime = performance.now();
-
     const wordsArray = text.split(/\s+/);
     const audioDuration = audioRef.current?.duration || 0;
 
-    const totalCharacters = wordsArray.reduce(
-      (sum, word) => sum + word.length,
-      0
-    );
-    const averageTimePerChar = audioDuration / totalCharacters;
-
     let currentTime = 0;
-    const timings = wordsArray.map((word) => {
-      const wordDuration = word.length * averageTimePerChar;
+    const timings = wordsArray.map((word, index) => {
+      const nextWord =
+        index < wordsArray.length - 1 ? wordsArray[index + 1] : null;
+
+      // Calculate word duration based on syllables and complexity
+      const wordDuration = getWordTiming(word);
+
+      // Add pause after the word
+      const pauseDuration = getPauseDuration(word, nextWord);
+
       const timing = {
         word,
         start: currentTime,
         end: currentTime + wordDuration,
         duration: wordDuration,
+        pause: pauseDuration,
         characters: word.length,
+        syllables: countSyllables(word),
       };
-      currentTime += wordDuration;
+
+      currentTime += wordDuration + pauseDuration;
       return timing;
     });
 
-    const scaleFactor = audioDuration / currentTime;
+    // Scale timings to match audio duration
+    const totalCalculatedDuration = currentTime;
+    const scaleFactor = audioDuration / totalCalculatedDuration;
+
     const scaledTimings = timings.map((timing) => ({
       ...timing,
       start: timing.start * scaleFactor,
       end: timing.end * scaleFactor,
       duration: timing.duration * scaleFactor,
+      pause: timing.pause * scaleFactor,
     }));
 
     const endTime = performance.now();
-    const processingTime = endTime - startTime;
-
     setMetrics({
-      totalTime: processingTime,
+      totalTime: endTime - startTime,
       wordsProcessed: wordsArray.length,
-      averageTimePerWord: processingTime / wordsArray.length,
+      averageTimePerWord: (endTime - startTime) / wordsArray.length,
       totalDuration: audioDuration,
       averageWordDuration: audioDuration / wordsArray.length,
+      /* totalSyllables: timings.reduce((sum, t) => sum + t.syllables, 0) */
     });
 
     setWords(scaledTimings);
@@ -108,7 +191,6 @@ const SpeechTiming: React.FC<Props> = ({ audioUrl, text }) => {
 
   return (
     <div className='p-4 space-y-4 text-black'>
-      {/* Audio player */}
       <audio
         ref={audioRef}
         controls
@@ -118,7 +200,6 @@ const SpeechTiming: React.FC<Props> = ({ audioUrl, text }) => {
         src={audioUrl}
       />
 
-      {/* Processing Metrics */}
       {metrics && (
         <div className='bg-gray-50 p-4 rounded-lg'>
           <h3 className='font-bold mb-2 text-black'>Processing Metrics:</h3>
@@ -141,7 +222,6 @@ const SpeechTiming: React.FC<Props> = ({ audioUrl, text }) => {
         </div>
       )}
 
-      {/* Words display */}
       <div className='p-4 border rounded-lg bg-white shadow-sm'>
         <div className='flex flex-wrap gap-2'>
           {words.map((word, index) => (
@@ -156,7 +236,6 @@ const SpeechTiming: React.FC<Props> = ({ audioUrl, text }) => {
         </div>
       </div>
 
-      {/* Word timings table */}
       <div className='overflow-x-auto'>
         <table className='min-w-full divide-y divide-gray-200'>
           <thead className='bg-gray-50'>
