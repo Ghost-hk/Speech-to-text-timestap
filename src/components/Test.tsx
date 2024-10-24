@@ -25,8 +25,6 @@ interface ProcessingMetrics {
 
 const SpeechTiming: React.FC<Props> = ({ audioUrl, text }) => {
   const [words, setWords] = useState<WordTiming[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<ProcessingMetrics | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 

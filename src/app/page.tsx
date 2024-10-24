@@ -1,6 +1,5 @@
 "use client";
 import Input from "@/components/Input";
-import AudioWordTiming from "@/components/Test";
 
 export default function Home() {
   return (
